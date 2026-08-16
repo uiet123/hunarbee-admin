@@ -1,26 +1,222 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Brand — from Hunarbee logo */
+  --navy: #0b1220;
+  --navy-soft: #152238;
+  --navy-muted: #243044;
+  --honey: #f5b800;
+  --honey-deep: #e89a00;
+  --honey-soft: #f7eccc;
+  /* Soft logo-tinted surfaces (not pure white) */
+  --cream: #ebe6da;
+  --slate: #5b6577;
+  --border: rgba(11, 18, 32, 0.1);
+  --glass: rgba(236, 241, 248, 0.78);
+  --glass-border: rgba(255, 255, 255, 0.35);
+  --shadow-soft: 0 8px 32px rgba(11, 18, 32, 0.06);
+  --shadow-lift: 0 16px 48px rgba(11, 18, 32, 0.1);
+
+  /* Soft mist blue-gray — easier on the eyes than white */
+  --background: #d9e2ee;
+  --surface: #e8eef6;
+  --surface-elevated: #f1f5fa;
+  --foreground: var(--navy);
+  --radius: 16px;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-navy: var(--navy);
+  --color-navy-soft: var(--navy-soft);
+  --color-navy-muted: var(--navy-muted);
+  --color-honey: var(--honey);
+  --color-honey-deep: var(--honey-deep);
+  --color-honey-soft: var(--honey-soft);
+  --color-cream: var(--cream);
+  --color-slate: var(--slate);
+  --color-border: var(--border);
+  --font-sans: var(--font-body);
+  --font-display: var(--font-display);
+  --radius-xl: var(--radius);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  scroll-behavior: auto;
 }
 
 body {
-  background: var(--background);
+  background:
+    radial-gradient(ellipse 90% 50% at 0% 0%, rgba(245, 184, 0, 0.06), transparent 52%),
+    radial-gradient(ellipse 70% 45% at 100% 10%, rgba(70, 110, 160, 0.1), transparent 50%),
+    radial-gradient(ellipse 60% 40% at 50% 100%, rgba(11, 18, 32, 0.04), transparent 55%),
+    var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-body), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+::selection {
+  background: color-mix(in srgb, var(--honey) 35%, white);
+  color: var(--navy);
+}
+
+.honeycomb-bg {
+  background-image: url("data:image/svg+xml,%3Csvg width='56' height='100' viewBox='0 0 56 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M28 66L0 50L0 16L28 0L56 16L56 50L28 66L28 100' fill='none' stroke='%23f5b800' stroke-opacity='0.07' stroke-width='1'/%3E%3Cpath d='M28 0L28 34L0 50L0 84L28 100L56 84L56 50L28 34' fill='none' stroke='%230b1220' stroke-opacity='0.03' stroke-width='1'/%3E%3C/svg%3E");
+  background-size: 56px 100px;
+}
+
+.mesh-glow {
+  background:
+    radial-gradient(ellipse 80% 50% at 20% 20%, rgba(245, 184, 0, 0.1), transparent 55%),
+    radial-gradient(ellipse 60% 45% at 85% 15%, rgba(70, 110, 160, 0.12), transparent 50%),
+    radial-gradient(ellipse 50% 40% at 70% 80%, rgba(245, 184, 0, 0.06), transparent 55%);
+}
+
+.glass {
+  background: var(--glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+}
+
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+
+.lenis.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+
+.lenis.lenis-smooth [data-lenis-prevent] {
+  overscroll-behavior: contain;
+}
+
+.lenis.lenis-stopped {
+  overflow: hidden;
+}
+
+.cta-glow {
+  background: radial-gradient(
+    ellipse 70% 60% at 50% 0%,
+    rgba(245, 184, 0, 0.35),
+    transparent 60%
+  );
+}
+
+@keyframes accordion-down {
+  from {
+    height: 0;
+    opacity: 0;
+  }
+  to {
+    height: var(--radix-accordion-content-height);
+    opacity: 1;
+  }
+}
+
+@keyframes accordion-up {
+  from {
+    height: var(--radix-accordion-content-height);
+    opacity: 1;
+  }
+  to {
+    height: 0;
+    opacity: 0;
+  }
+}
+
+.animate-accordion-down {
+  animation: accordion-down 0.28s ease-out;
+}
+
+.animate-accordion-up {
+  animation: accordion-up 0.22s ease-out;
+}
+
+/* ─── Portal utilities ─── */
+
+.portal-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.portal-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.portal-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(245, 184, 0, 0.18);
+  border-radius: 999px;
+}
+.portal-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(245, 184, 0, 0.35);
+}
+
+@keyframes portal-slide-in {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes portal-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(245, 184, 0, 0);
+  }
+  50% {
+    box-shadow: 0 0 12px 2px rgba(245, 184, 0, 0.15);
+  }
+}
+
+@keyframes subtle-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.animate-portal-slide-in {
+  animation: portal-slide-in 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.animate-portal-fade-up {
+  animation: portal-fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2.5s ease-in-out infinite;
+}
+
+.animate-subtle-float {
+  animation: subtle-float 6s ease-in-out infinite;
+}
+
+.portal-content-area {
+  background:
+    radial-gradient(ellipse 70% 40% at 0% 0%, rgba(245, 184, 0, 0.04), transparent 50%),
+    radial-gradient(ellipse 50% 35% at 100% 100%, rgba(70, 110, 160, 0.06), transparent 50%),
+    var(--background);
+}
+
