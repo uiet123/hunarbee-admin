@@ -40,6 +40,77 @@ export const RESOURCE_TYPES: ResourceType[] = [
 /** Template lifecycle states */
 export type TemplateStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
 
+// ─── Video Lesson types ───
+export type VideoProvider = 'YOUTUBE' | 'SELF_HOSTED' | 'GENERATED';
+export const VIDEO_PROVIDERS: VideoProvider[] = ['YOUTUBE', 'SELF_HOSTED', 'GENERATED'];
+
+export type VideoLessonStatus = 'DRAFT' | 'GENERATING' | 'READY' | 'FAILED' | 'ARCHIVED';
+export const VIDEO_LESSON_STATUSES: VideoLessonStatus[] = [
+  'DRAFT',
+  'GENERATING',
+  'READY',
+  'FAILED',
+  'ARCHIVED',
+];
+
+export interface VideoLesson {
+  id: string;
+  title: string;
+  description: string;
+  provider: VideoProvider;
+  videoUrl: string;
+  thumbnailUrl: string;
+  durationSeconds: number;
+  transcript?: string;
+  script?: string;
+  status: VideoLessonStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ─── Learning Content types ───
+export type LearningContentType = 'VIDEO' | 'ARTICLE' | 'DOCUMENTATION' | 'PDF';
+export const LEARNING_CONTENT_TYPES: LearningContentType[] = [
+  'VIDEO',
+  'ARTICLE',
+  'DOCUMENTATION',
+  'PDF',
+];
+
+export interface LearningContent {
+  id: string;
+  order: number;
+  type: LearningContentType;
+  title: string;
+  description: string;
+  url: string;
+  isRequired: boolean;
+  videoLessonId?: string;       // References VideoLesson.id if type is 'VIDEO'
+  completionThreshold?: number; // Day-specific threshold (default 90)
+}
+
+// ─── Task Prerequisite types ───
+export type TaskPrerequisiteType =
+  | 'REQUIRED_LEARNING_CONTENT'
+  | 'VIDEO_COMPLETED'
+  | 'READING_COMPLETED'
+  | 'QUIZ_PASSED'
+  | 'PREVIOUS_TASK_COMPLETED';
+
+export const TASK_PREREQUISITE_TYPES: TaskPrerequisiteType[] = [
+  'REQUIRED_LEARNING_CONTENT',
+  'VIDEO_COMPLETED',
+  'READING_COMPLETED',
+  'QUIZ_PASSED',
+  'PREVIOUS_TASK_COMPLETED',
+];
+
+export interface TaskPrerequisite {
+  id: string;
+  type: TaskPrerequisiteType;
+  targetId: string;             // References LearningContent.id or CurriculumTask.id
+}
+
 // ─── Program & Plan (data-driven entities, NOT hard-coded enums) ───
 
 /** Data-driven Program entity — loaded from API/mock, never hard-coded as an enum */
@@ -117,6 +188,7 @@ export interface CurriculumDay {
   objectives: string[];
   tasks: CurriculumTask[];
   resources: CurriculumResource[];
+  learningContent?: LearningContent[];
 }
 
 export interface CurriculumTask {
@@ -129,6 +201,7 @@ export interface CurriculumTask {
   requiresSubmission: boolean;
   requiresMentorReview: boolean;
   sourceLibraryId?: string;
+  prerequisites?: TaskPrerequisite[];
 }
 
 export interface CurriculumResource {

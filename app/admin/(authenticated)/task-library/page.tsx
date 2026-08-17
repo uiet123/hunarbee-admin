@@ -10,6 +10,7 @@ import {
   updateTaskLibraryItem,
   archiveTaskLibraryItem,
 } from "@/lib/curriculum";
+import { useAlertModal } from "@/components/admin/ui/AlertModalProvider";
 import type { TaskLibraryItem } from "@/lib/curriculum/types";
 
 export default function TaskLibraryPage() {
@@ -17,6 +18,7 @@ export default function TaskLibraryPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState("ALL");
+  const { showAlert, showConfirm } = useAlertModal();
 
   // Modal State
   const [editingItem, setEditingItem] = useState<TaskLibraryItem | null>(null);
@@ -113,12 +115,12 @@ export default function TaskLibraryPage() {
   };
 
   const handleArchive = async (id: string) => {
-    if (!confirm("Are you sure you want to archive this library task? It will not be visible for selection anymore.")) return;
+    if (!(await showConfirm("Are you sure you want to archive this library task? It will not be visible for selection anymore."))) return;
     try {
       await archiveTaskLibraryItem(id);
       await loadItems();
     } catch (err) {
-      alert((err as Error).message);
+      await showAlert((err as Error).message, "Error", "error");
     }
   };
 

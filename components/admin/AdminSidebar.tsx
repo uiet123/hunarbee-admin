@@ -18,6 +18,7 @@ import {
   BookOpen,
   ListChecks,
   Library,
+  Video,
 } from "lucide-react";
 import { BrandWordmark } from "@/components/shared/brand-wordmark";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,7 @@ const NAV_ITEMS = [
   { href: "/admin/curriculum-templates", label: "Curriculum", icon: BookOpen },
   { href: "/admin/task-library", label: "Task Library", icon: ListChecks },
   { href: "/admin/resource-library", label: "Resource Library", icon: Library },
+  { href: "/admin/video-library", label: "Video Library", icon: Video },
   { href: "/admin/applications", label: "Applications", icon: FileText },
   { href: "/admin/students", label: "Students", icon: Users },
   { href: "/admin/payments", label: "Payments", icon: CreditCard },

@@ -7,6 +7,8 @@ import { ArrowLeft, Plus, CalendarDays, Users, IndianRupee, ArrowRight, Settings
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { fetchApi } from "@/lib/api";
+import { useAlertModal } from "@/components/admin/ui/AlertModalProvider";
+import { AddPlanModal } from "@/components/admin/programs/AddPlanModal";
 
 interface Plan {
   id: string;
@@ -29,8 +31,11 @@ export default function ProgramDetails({ params }: { params: Promise<{ id: strin
   const resolvedParams = use(params);
   const [program, setProgram] = useState<Program | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showAddPlan, setShowAddPlan] = useState(false);
+  const { showAlert } = useAlertModal();
 
-  useEffect(() => {
+  const loadProgram = () => {
+    setLoading(true);
     fetchApi<{ success: boolean; data: Program[] }>("/admin/programs")
       .then(res => {
         if (res?.success) {
@@ -39,10 +44,29 @@ export default function ProgramDetails({ params }: { params: Promise<{ id: strin
         }
       })
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadProgram();
   }, [resolvedParams.id]);
+
 
   if (loading) return <div className="p-8 text-center text-slate">Loading program details...</div>;
   if (!program) return <div className="p-8 text-center text-red-500">Program not found</div>;
+
+  const handleAddPlan = async (data: { name: string; price: number; duration_months: number; total_days: number }) => {
+    try {
+      await fetchApi(`/admin/programs/${program.id}/plans`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+      setShowAddPlan(false);
+      await showAlert("Plan created successfully.", "Success", "success");
+      loadProgram();
+    } catch (error) {
+      await showAlert("Failed to create plan: " + (error as Error).message, "Error", "error");
+    }
+  };
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -58,7 +82,7 @@ export default function ProgramDetails({ params }: { params: Promise<{ id: strin
 
       <div className="flex items-center justify-between mt-8 border-b border-navy/10 pb-4">
         <h3 className="font-[family-name:var(--font-display)] text-lg font-bold text-navy">Available Plans</h3>
-        <Button className="bg-navy text-white hover:bg-navy/90 h-9">
+        <Button onClick={() => setShowAddPlan(true)} className="bg-navy text-white hover:bg-navy/90 h-9">
           <Plus className="mr-2 h-4 w-4" /> Add Plan
         </Button>
       </div>
@@ -90,7 +114,7 @@ export default function ProgramDetails({ params }: { params: Promise<{ id: strin
                 <span className="text-lg font-bold text-navy">₹{plan.price}</span>
               </div>
               <h4 className="font-[family-name:var(--font-display)] text-xl font-bold text-navy">
-                {plan.name}
+                {plan.duration_months} Month{plan.duration_months > 1 ? 's' : ''}
               </h4>
               
               <div className="mt-4 grid grid-cols-2 gap-3">
@@ -122,6 +146,13 @@ export default function ProgramDetails({ params }: { params: Promise<{ id: strin
           </motion.div>
         ))}
       </div>
+
+      {showAddPlan && (
+        <AddPlanModal
+          onClose={() => setShowAddPlan(false)}
+          onSave={handleAddPlan}
+        />
+      )}
     </div>
   );
 }

@@ -10,6 +10,7 @@ import {
   updateResourceLibraryItem,
   archiveResourceLibraryItem,
 } from "@/lib/curriculum";
+import { useAlertModal } from "@/components/admin/ui/AlertModalProvider";
 import type { ResourceLibraryItem, ResourceType } from "@/lib/curriculum/types";
 import { RESOURCE_TYPES } from "@/lib/curriculum/types";
 
@@ -27,6 +28,7 @@ export default function ResourceLibraryPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTag, setSelectedTag] = useState("ALL");
   const [selectedType, setSelectedType] = useState("ALL");
+  const { showAlert, showConfirm } = useAlertModal();
 
   // Modal State
   const [editingItem, setEditingItem] = useState<ResourceLibraryItem | null>(null);
@@ -122,12 +124,12 @@ export default function ResourceLibraryPage() {
   };
 
   const handleArchive = async (id: string) => {
-    if (!confirm("Are you sure you want to archive this library resource? It will not be visible for selection anymore.")) return;
+    if (!(await showConfirm("Are you sure you want to archive this library resource? It will not be visible for selection anymore."))) return;
     try {
       await archiveResourceLibraryItem(id);
       await loadItems();
     } catch (err) {
-      alert((err as Error).message);
+      await showAlert((err as Error).message, "Error", "error");
     }
   };
 

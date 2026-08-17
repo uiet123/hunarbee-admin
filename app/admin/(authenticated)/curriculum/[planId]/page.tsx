@@ -4,6 +4,7 @@ import { use, useState, useEffect } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Plus, GripVertical, Trash2, Edit2, ChevronDown, Save, ExternalLink, PlayCircle, FileText as FileIcon, Link as LinkIcon } from "lucide-react";
+import { useAlertModal } from "@/components/admin/ui/AlertModalProvider";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import * as Accordion from "@radix-ui/react-accordion";
@@ -45,6 +46,7 @@ export default function CurriculumBuilder({ params }: { params: Promise<{ planId
   const [programId, setProgramId] = useState("");
   const [days, setDays] = useState<CurriculumDay[]>([]);
   const [loading, setLoading] = useState(true);
+  const { showConfirm } = useAlertModal();
 
   useEffect(() => {
     fetchApi<{ success: boolean; data: any[] }>("/admin/programs")
@@ -89,8 +91,8 @@ export default function CurriculumBuilder({ params }: { params: Promise<{ planId
     }
   };
 
-  const deleteDay = (id: string) => {
-    if (confirm("Are you sure you want to delete this day and all its tasks?")) {
+  const deleteDay = async (id: string) => {
+    if (await showConfirm("Are you sure you want to delete this day and all its tasks?")) {
       const filtered = days.filter(d => d.id !== id);
       setDays(filtered.map((d, i) => ({ ...d, dayNumber: i + 1 })));
     }
@@ -118,8 +120,8 @@ export default function CurriculumBuilder({ params }: { params: Promise<{ planId
     }));
   };
 
-  const deleteTask = (dayId: string, taskId: string) => {
-    if (confirm("Delete this task?")) {
+  const deleteTask = async (dayId: string, taskId: string) => {
+    if (await showConfirm("Delete this task?")) {
       setDays(days.map(day => {
         if (day.id === dayId) {
           return { ...day, tasks: day.tasks.filter(t => t.id !== taskId) };

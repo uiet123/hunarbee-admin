@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { Plus, Download, FileJson, Copy, Layers, ChevronRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { fetchApi } from "@/lib/api";
 import {
   getTemplates,
   getPrograms,
@@ -18,6 +19,7 @@ import {
   duplicateTemplate,
   exportVersion,
 } from "@/lib/curriculum";
+import { useAlertModal } from "@/components/admin/ui/AlertModalProvider";
 import type { CurriculumTemplate, Program, InternshipPlan } from "@/lib/curriculum/types";
 import { TemplateCard } from "@/components/admin/curriculum/TemplateCard";
 import { CreateTemplateModal } from "@/components/admin/curriculum/CreateTemplateModal";
@@ -49,11 +51,14 @@ export default function CurriculumTemplatesPage() {
   const [selectedStatusFilter, setSelectedStatusFilter] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
 
+  const { showAlert, showConfirm } = useAlertModal();
+
   const loadData = async () => {
     setLoading(true);
     try {
       const allTemplates = await getTemplates();
       const allPrograms = await getPrograms();
+      
       setTemplates(allTemplates);
       setPrograms(allPrograms);
 
@@ -126,27 +131,27 @@ export default function CurriculumTemplatesPage() {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
     } catch (err) {
-      alert("Failed to export template: " + (err as Error).message);
+      await showAlert("Failed to export template: " + (err as Error).message, "Export Failed", "error");
     }
   };
 
   const handleArchive = async (templateId: string, versionId: string) => {
-    if (!confirm("Are you sure you want to archive this version? It will become permanently read-only.")) return;
+    if (!(await showConfirm("Are you sure you want to archive this version? It will become permanently read-only."))) return;
     try {
       await archiveVersion(templateId, versionId);
       await loadData();
     } catch (err) {
-      alert((err as Error).message);
+      await showAlert((err as Error).message, "Error", "error");
     }
   };
 
   const handleDelete = async (templateId: string) => {
-    if (!confirm("Are you sure you want to delete this template? All draft versions will be deleted permanently.")) return;
+    if (!(await showConfirm("Are you sure you want to delete this curriculum template? This will delete all versions permanently."))) return;
     try {
       await deleteTemplate(templateId);
       await loadData();
     } catch (err) {
-      alert((err as Error).message);
+      await showAlert((err as Error).message, "Error", "error");
     }
   };
 
@@ -160,7 +165,7 @@ export default function CurriculumTemplatesPage() {
       const newVer = await createNewVersionFromPublished(templateId, published.id);
       router.push(`/admin/curriculum-templates/${templateId}?version=${newVer.id}`);
     } catch (err) {
-      alert((err as Error).message);
+      await showAlert((err as Error).message, "Error", "error");
     }
   };
 

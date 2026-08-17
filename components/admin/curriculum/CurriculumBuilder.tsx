@@ -1,19 +1,18 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { Plus, Save, ChevronDown, ChevronUp, Trash2, Eye } from "lucide-react";
+import { useState } from "react";
+import { Plus, Save, ChevronDown, ChevronUp, Trash2, Eye, Compass, Calendar, BookOpen, Layers, CheckSquare, Settings } from "lucide-react";
 import * as Accordion from "@radix-ui/react-accordion";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type {
   CurriculumTemplate,
-  CurriculumTemplateVersion,
   CurriculumPhase,
   CurriculumWeek,
-  CurriculumDay,
   CurriculumTask,
   CurriculumResource,
   ValidationResult,
+  VideoLessonStatus,
 } from "@/lib/curriculum/types";
 import {
   generateId,
@@ -21,13 +20,14 @@ import {
   publishVersion,
   createNewVersionFromPublished,
 } from "@/lib/curriculum";
-import { recalculateDayNumbers } from "@/lib/curriculum/validators";
+import { recalculateDayNumbers, validateForPublish } from "@/lib/curriculum/validators";
 import { DayEditor } from "./DayEditor";
 import { DayTypeBadge } from "./DayTypeBadge";
 import { VersionSelector } from "./VersionSelector";
 import { PublishValidationPanel } from "./PublishValidationPanel";
 import { TaskLibraryPicker } from "./TaskLibraryPicker";
 import { ResourceLibraryPicker } from "./ResourceLibraryPicker";
+import { useAlertModal } from "@/components/admin/ui/AlertModalProvider";
 
 interface CurriculumBuilderProps {
   template: CurriculumTemplate;
@@ -57,6 +57,8 @@ export function CurriculumBuilder({
   const [publishing, setPublishing] = useState(false);
   const [taskPickerForDay, setTaskPickerForDay] = useState<string | null>(null);
   const [resourcePickerForDay, setResourcePickerForDay] = useState<string | null>(null);
+  
+  const { showAlert, showConfirm } = useAlertModal();
 
   const currentVersion = template.versions.find((v) => v.id === currentVersionId);
   const readOnly = currentVersion?.status !== "DRAFT";
@@ -94,8 +96,8 @@ export function CurriculumBuilder({
     );
   };
 
-  const deletePhase = (phaseId: string) => {
-    if (!confirm("Delete this phase and all its content?")) return;
+  const deletePhase = async (phaseId: string) => {
+    if (!(await showConfirm("Delete this phase and all its content?"))) return;
     const updated = recalculateDayNumbers(
       phases.filter((p) => p.id !== phaseId).map((p, i) => ({ ...p, order: i + 1 }))
     );
@@ -147,8 +149,8 @@ export function CurriculumBuilder({
     );
   };
 
-  const deleteWeek = (phaseId: string, weekId: string) => {
-    if (!confirm("Delete this week and all its days?")) return;
+  const deleteWeek = async (phaseId: string, weekId: string) => {
+    if (!(await showConfirm("Delete this week and all its days?"))) return;
     setPhases((prev) => {
       const newPhases = prev.map((p) =>
         p.id === phaseId
@@ -210,7 +212,7 @@ export function CurriculumBuilder({
     });
   };
 
-  const updateDay = (phaseId: string, weekId: string, dayId: string, updatedDay: CurriculumDay) => {
+  const updateDay = (phaseId: string, weekId: string, dayId: string, data: Partial<CurriculumPhase["weeks"][number]["days"][number]>) => {
     setPhases((prev) =>
       prev.map((p) =>
         p.id === phaseId
@@ -218,7 +220,10 @@ export function CurriculumBuilder({
               ...p,
               weeks: p.weeks.map((w) =>
                 w.id === weekId
-                  ? { ...w, days: w.days.map((d) => (d.id === dayId ? updatedDay : d)) }
+                  ? {
+                      ...w,
+                      days: w.days.map((d) => (d.id === dayId ? { ...d, ...data } : d)),
+                    }
                   : w
               ),
             }
@@ -227,8 +232,23 @@ export function CurriculumBuilder({
     );
   };
 
-  const deleteDay = (phaseId: string, weekId: string, dayId: string) => {
-    if (!confirm("Delete this day and all its tasks?")) return;
+  const deleteDay = async (phaseId: string, weekId: string, dayId: string) => {
+    const week = phases.find((p) => p.id === phaseId)?.weeks.find((w) => w.id === weekId);
+    const day = week?.days.find((d) => d.id === dayId);
+    
+    if (day) {
+      const lcIds = (day.learningContent || []).map((lc) => lc.id);
+      const referencingTasks = day.tasks.filter((t) =>
+        t.prerequisites?.some((p) => lcIds.includes(p.targetId))
+      ).map((t) => t.title);
+
+      if (referencingTasks.length > 0) {
+        await showAlert(`Cannot delete this day: Deleting the day's learning content breaks prerequisites referenced inside tasks: "${referencingTasks.join('", "')}".`, "Cannot Delete", "error");
+        return;
+      }
+    }
+
+    if (!(await showConfirm("Are you sure you want to delete this day?"))) return;
     setPhases((prev) => {
       const newPhases = prev.map((p) =>
         p.id === phaseId
@@ -236,7 +256,10 @@ export function CurriculumBuilder({
               ...p,
               weeks: p.weeks.map((w) =>
                 w.id === weekId
-                  ? { ...w, days: w.days.filter((d) => d.id !== dayId).map((d, i) => ({ ...d, order: i + 1 })) }
+                  ? {
+                      ...w,
+                      days: w.days.filter((d) => d.id !== dayId).map((d, i) => ({ ...d, order: i + 1 })),
+                    }
                   : w
               ),
             }
@@ -270,80 +293,108 @@ export function CurriculumBuilder({
     });
   };
 
-  // ─── Library picker handlers ───
-  const handleTaskFromLibrary = (dayId: string, task: CurriculumTask) => {
-    setPhases((prev) => {
-      const newPhases = prev.map((p) => ({
+  // ─── Import from libraries ───
+  const handleTaskFromLibrary = (dayId: string, taskItem: any) => {
+    setPhases((prev) =>
+      prev.map((p) => ({
         ...p,
         weeks: p.weeks.map((w) => ({
           ...w,
           days: w.days.map((d) => {
             if (d.id !== dayId) return d;
-            return {
-              ...d,
-              tasks: [...d.tasks, { ...task, order: d.tasks.length + 1 }],
+
+            const newTask: CurriculumTask = {
+              id: generateId("task"),
+              order: d.tasks.length + 1,
+              title: taskItem.title,
+              description: taskItem.description || "",
+              instructions: taskItem.instructions || "",
+              estimatedMinutes: taskItem.estimatedMinutes || 60,
+              requiresSubmission: taskItem.requiresSubmission || false,
+              requiresMentorReview: taskItem.requiresMentorReview || false,
+              sourceLibraryId: taskItem.id,
+              prerequisites: [],
             };
+
+            return { ...d, tasks: [...d.tasks, newTask] };
           }),
         })),
-      }));
-      return newPhases;
-    });
+      }))
+    );
+    setTaskPickerForDay(null);
   };
 
-  const handleResourceFromLibrary = (dayId: string, resource: CurriculumResource) => {
-    setPhases((prev) => {
-      const newPhases = prev.map((p) => ({
+  const handleResourceFromLibrary = (dayId: string, resourceItem: any) => {
+    setPhases((prev) =>
+      prev.map((p) => ({
         ...p,
         weeks: p.weeks.map((w) => ({
           ...w,
           days: w.days.map((d) => {
             if (d.id !== dayId) return d;
-            return {
-              ...d,
-              resources: [...d.resources, { ...resource, order: d.resources.length + 1 }],
+
+            const newResource: CurriculumResource = {
+              id: generateId("res"),
+              order: d.resources.length + 1,
+              title: resourceItem.title,
+              type: resourceItem.type,
+              url: resourceItem.url,
+              description: resourceItem.description || "",
+              sourceLibraryId: resourceItem.id,
             };
+
+            return { ...d, resources: [...d.resources, newResource] };
           }),
         })),
-      }));
-      return newPhases;
-    });
+      }))
+    );
+    setResourcePickerForDay(null);
   };
 
-  // ─── Save ───
+  // ─── Save & Publish version ───
   const handleSave = async () => {
     setSaving(true);
     try {
       await updateVersion(template.id, currentVersionId, { phases });
       onTemplateChange();
+      await showAlert("Curriculum saved successfully.", "Success", "success");
     } catch (err) {
-      alert((err as Error).message);
+      await showAlert((err as Error).message, "Error", "error");
     } finally {
       setSaving(false);
     }
   };
 
-  // ─── Publish ───
   const handlePublish = async () => {
-    // First save
-    try {
-      await updateVersion(template.id, currentVersionId, { phases });
-    } catch (err) {
-      alert((err as Error).message);
-      return;
-    }
-
-    const result = await publishVersion(template.id, currentVersionId);
-    setValidationResult(result.validation);
+    if (!currentVersion) return;
+    const result = validateForPublish(
+      { ...currentVersion, phases },
+      template.durationDays,
+      planName
+    );
+    setValidationResult(result);
     setShowValidation(true);
   };
 
-  const handleConfirmPublish = () => {
-    // publishVersion already published it if validation passed
-    setShowValidation(false);
-    onTemplateChange();
+  const handleConfirmPublish = async () => {
+    setPublishing(true);
+    try {
+      await publishVersion(template.id, currentVersionId);
+      setShowValidation(false);
+      const validation = validateForPublish({ ...currentVersion!, phases }, template.durationDays, planName);
+      setValidationResult(validation);
+      if (validation.valid) {
+        await showAlert("Curriculum version published successfully.", "Success", "success");
+        onTemplateChange();
+        window.location.reload();
+      }
+    } catch (err) {
+      await showAlert((err as Error).message, "Error", "error");
+    } finally {
+      setPublishing(false);
+    }
   };
 
-  // ─── Create New Version ───
   const handleCreateNewVersion = async () => {
     try {
       const newVer = await createNewVersionFromPublished(template.id, currentVersionId);
@@ -351,11 +402,10 @@ export function CurriculumBuilder({
       setPhases(recalculateDayNumbers(newVer.phases));
       onTemplateChange();
     } catch (err) {
-      alert((err as Error).message);
+      await showAlert((err as Error).message, "Error", "error");
     }
   };
 
-  // ─── Switch Version ───
   const handleSelectVersion = (versionId: string) => {
     const ver = template.versions.find((v) => v.id === versionId);
     if (ver) {
@@ -385,7 +435,7 @@ export function CurriculumBuilder({
                   "text-xs font-semibold",
                   currentDayCount === template.durationDays ? "text-emerald-600" : "text-red-500"
                 )}>
-                  {currentDayCount}/{template.durationDays} days
+                  {currentDayCount}/{template.durationDays} days configured
                 </span>
               </div>
             </div>
@@ -432,6 +482,19 @@ export function CurriculumBuilder({
         )}
       </div>
 
+      {/* Onboarding Designer Banner Guide */}
+      <div className="rounded-2xl border border-blue-500/10 bg-gradient-to-r from-blue-500/[0.03] to-transparent p-5 flex items-start gap-4">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600">
+          <Compass className="h-5 w-5" />
+        </span>
+        <div className="space-y-1">
+          <h4 className="text-xs font-bold text-navy uppercase tracking-wider">Curriculum Hierarchy Guide</h4>
+          <p className="text-xs text-slate leading-relaxed">
+            Organize content using the three levels: **Phases** (broad structural segments) ➔ **Weeks** (milestone periods) ➔ **Days** (individual daily lectures and assignments). Click any header to expand and configure.
+          </p>
+        </div>
+      </div>
+
       {/* Phase list */}
       {phases.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-navy/20 p-12 text-center">
@@ -443,245 +506,285 @@ export function CurriculumBuilder({
           )}
         </div>
       ) : (
-        <Accordion.Root type="multiple" className="space-y-4">
-          {phases.map((phase, pIdx) => (
-            <Accordion.Item
-              key={phase.id}
-              value={phase.id}
-              className="rounded-2xl border border-navy/10 bg-surface-elevated/90 shadow-sm overflow-hidden"
-            >
-              {/* Phase header */}
-              <div className="flex items-center justify-between border-b border-navy/5 bg-gradient-to-r from-navy/[0.04] to-transparent px-4 py-3">
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  {!readOnly && (
-                    <div className="flex flex-col items-center gap-0.5">
-                      <button onClick={() => reorderPhase(phase.id, "up")} disabled={pIdx === 0} className="text-slate hover:text-navy disabled:opacity-30 p-0.5">
-                        <ChevronUp className="h-3.5 w-3.5" />
-                      </button>
-                      <button onClick={() => reorderPhase(phase.id, "down")} disabled={pIdx === phases.length - 1} className="text-slate hover:text-navy disabled:opacity-30 p-0.5">
-                        <ChevronDown className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  )}
-                  <Accordion.Header className="flex-1 min-w-0">
-                    <Accordion.Trigger className="flex flex-1 items-center gap-3 text-left w-full [&[data-state=open]>svg]:rotate-180">
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-navy text-white text-xs font-bold">
-                        P{pIdx + 1}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        {readOnly ? (
-                          <p className="font-bold text-navy truncate">{phase.title || "(Untitled Phase)"}</p>
-                        ) : (
-                          <input
-                            value={phase.title}
-                            placeholder="Phase title..."
-                            onChange={(e) => updatePhase(phase.id, { title: e.target.value })}
-                            onClick={(e) => e.stopPropagation()}
-                            className="w-full font-bold text-navy bg-transparent outline-none border-b border-transparent focus:border-honey"
-                          />
-                        )}
-                        <p className="text-xs text-slate mt-0.5">{phase.weeks.length} week{phase.weeks.length !== 1 ? "s" : ""}</p>
-                      </div>
-                      <ChevronDown className="h-4 w-4 text-slate transition-transform duration-200 shrink-0" />
-                    </Accordion.Trigger>
-                  </Accordion.Header>
-                </div>
-                {!readOnly && (
-                  <button onClick={() => deletePhase(phase.id)} className="ml-2 p-2 text-red-400 hover:bg-red-500/10 rounded-lg transition shrink-0">
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
+        <Accordion.Root type="multiple" className="space-y-6">
+          {phases.map((phase, pIdx) => {
+            let phaseDaysCount = 0;
+            let phaseTasksCount = 0;
+            phase.weeks.forEach((w) => {
+              phaseDaysCount += w.days.length;
+              w.days.forEach((d) => {
+                phaseTasksCount += d.tasks.length;
+              });
+            });
 
-              {/* Phase content */}
-              <Accordion.Content className="overflow-hidden data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up">
-                <div className="p-4 sm:p-5 space-y-4">
-                  {!readOnly && (
-                    <div className="mb-2">
-                      <textarea
-                        value={phase.description}
-                        placeholder="Phase description..."
-                        onChange={(e) => updatePhase(phase.id, { description: e.target.value })}
-                        className="w-full min-h-[40px] rounded-lg border border-navy/10 bg-white px-3 py-2 text-sm text-navy outline-none focus:border-honey resize-y"
-                      />
-                    </div>
-                  )}
-                  {readOnly && phase.description && (
-                    <p className="text-sm text-slate mb-2">{phase.description}</p>
-                  )}
-
-                  {/* Weeks inside phase */}
-                  {phase.weeks.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-navy/15 p-6 text-center text-sm text-slate">
-                      No weeks yet.
-                      {!readOnly && (
-                        <button onClick={() => addWeek(phase.id)} className="ml-2 text-honey font-semibold hover:text-honey-deep">
-                          Add Week
+            return (
+              <Accordion.Item
+                key={phase.id}
+                value={phase.id}
+                className="rounded-2xl border-t-4 border-t-navy border border-navy/10 bg-slate-50/50 shadow-sm overflow-hidden"
+              >
+                {/* Phase header */}
+                <div className="flex items-center justify-between border-b border-navy/5 bg-navy/[0.02] px-4 py-3.5">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    {!readOnly && (
+                      <div className="flex flex-col items-center gap-0.5 shrink-0">
+                        <button onClick={() => reorderPhase(phase.id, "up")} disabled={pIdx === 0} className="text-slate hover:text-navy disabled:opacity-30 p-0.5">
+                          <ChevronUp className="h-3.5 w-3.5" />
                         </button>
-                      )}
-                    </div>
-                  ) : (
-                    <Accordion.Root type="multiple" className="space-y-3">
-                      {phase.weeks.map((week, wIdx) => (
-                        <Accordion.Item
-                          key={week.id}
-                          value={week.id}
-                          className="rounded-xl border border-navy/8 bg-white overflow-hidden"
-                        >
-                          {/* Week header */}
-                          <div className="flex items-center justify-between border-b border-navy/5 bg-navy/[0.02] px-3 py-2.5">
-                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                              {!readOnly && (
-                                <div className="flex flex-col items-center gap-0.5">
-                                  <button onClick={() => reorderWeek(phase.id, week.id, "up")} disabled={wIdx === 0} className="text-slate hover:text-navy disabled:opacity-30 p-0.5">
-                                    <ChevronUp className="h-3 w-3" />
-                                  </button>
-                                  <button onClick={() => reorderWeek(phase.id, week.id, "down")} disabled={wIdx === phase.weeks.length - 1} className="text-slate hover:text-navy disabled:opacity-30 p-0.5">
-                                    <ChevronDown className="h-3 w-3" />
-                                  </button>
-                                </div>
-                              )}
-                              <Accordion.Header className="flex-1 min-w-0">
-                                <Accordion.Trigger className="flex flex-1 items-center gap-2 text-left w-full [&[data-state=open]>svg]:rotate-180">
-                                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-honey/20 text-honey-deep text-[10px] font-bold">
-                                    W{wIdx + 1}
-                                  </span>
-                                  <div className="min-w-0 flex-1">
-                                    {readOnly ? (
-                                      <p className="text-sm font-semibold text-navy truncate">{week.title || "(Untitled Week)"}</p>
-                                    ) : (
-                                      <input
-                                        value={week.title}
-                                        placeholder="Week title..."
-                                        onChange={(e) => updateWeek(phase.id, week.id, { title: e.target.value })}
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="w-full text-sm font-semibold text-navy bg-transparent outline-none border-b border-transparent focus:border-honey"
-                                      />
-                                    )}
-                                    <p className="text-[11px] text-slate">{week.days.length} day{week.days.length !== 1 ? "s" : ""}</p>
-                                  </div>
-                                  <ChevronDown className="h-3.5 w-3.5 text-slate transition-transform duration-200 shrink-0" />
-                                </Accordion.Trigger>
-                              </Accordion.Header>
-                            </div>
-                            {!readOnly && (
-                              <button onClick={() => deleteWeek(phase.id, week.id)} className="ml-2 p-1.5 text-red-400 hover:bg-red-500/10 rounded-lg transition shrink-0">
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            )}
+                        <button onClick={() => reorderPhase(phase.id, "down")} disabled={pIdx === phases.length - 1} className="text-slate hover:text-navy disabled:opacity-30 p-0.5">
+                          <ChevronDown className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    )}
+                    <Accordion.Header className="flex-1 min-w-0">
+                      <Accordion.Trigger className="flex flex-1 items-center gap-3 text-left w-full [&[data-state=open]>svg]:rotate-180">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-navy text-white text-xs font-extrabold shadow-sm">
+                          P{pIdx + 1}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          {readOnly ? (
+                            <p className="font-bold text-navy truncate text-sm">{phase.title || "(Untitled Phase)"}</p>
+                          ) : (
+                            <input
+                              value={phase.title}
+                              placeholder="Define Phase Name (e.g. Phase 1: Web Development Basics)"
+                              onChange={(e) => updatePhase(phase.id, { title: e.target.value })}
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-full font-bold text-navy bg-transparent outline-none border-b border-transparent focus:border-navy/20 px-1 py-0.5 text-sm"
+                            />
+                          )}
+                          <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate font-medium">
+                            <span className="flex items-center gap-0.5"><Layers className="h-2.5 w-2.5" /> {phase.weeks.length} Weeks</span>
+                            <span>·</span>
+                            <span className="flex items-center gap-0.5"><Calendar className="h-2.5 w-2.5" /> {phaseDaysCount} Days</span>
+                            <span>·</span>
+                            <span className="flex items-center gap-0.5"><CheckSquare className="h-2.5 w-2.5" /> {phaseTasksCount} Tasks</span>
                           </div>
-
-                          {/* Week content */}
-                          <Accordion.Content className="overflow-hidden data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up">
-                            <div className="p-3 sm:p-4 space-y-3">
-                              {!readOnly && (
-                                <input
-                                  value={week.goal}
-                                  placeholder="Week goal..."
-                                  onChange={(e) => updateWeek(phase.id, week.id, { goal: e.target.value })}
-                                  className="w-full rounded-lg border border-navy/10 bg-navy/[0.02] px-3 py-2 text-xs text-navy outline-none focus:border-honey"
-                                />
-                              )}
-                              {readOnly && week.goal && (
-                                <p className="text-xs text-slate italic">{week.goal}</p>
-                              )}
-
-                              {/* Days inside week */}
-                              {week.days.length === 0 ? (
-                                <div className="rounded-lg border border-dashed border-navy/10 p-4 text-center text-xs text-slate">
-                                  No days yet.
-                                  {!readOnly && (
-                                    <button onClick={() => addDay(phase.id, week.id)} className="ml-2 text-honey font-semibold hover:text-honey-deep">
-                                      Add Day
-                                    </button>
-                                  )}
-                                </div>
-                              ) : (
-                                <Accordion.Root type="multiple" className="space-y-2">
-                                  {week.days.map((day, dIdx) => (
-                                    <Accordion.Item
-                                      key={day.id}
-                                      value={day.id}
-                                      className="rounded-lg border border-navy/8 bg-surface-elevated/50 overflow-hidden"
-                                    >
-                                      {/* Day header */}
-                                      <div className="flex items-center justify-between px-3 py-2">
-                                        <div className="flex items-center gap-2 flex-1 min-w-0">
-                                          {!readOnly && (
-                                            <div className="flex flex-col items-center gap-0.5">
-                                              <button onClick={() => reorderDay(phase.id, week.id, day.id, "up")} disabled={dIdx === 0} className="text-slate hover:text-navy disabled:opacity-30 p-0.5">
-                                                <ChevronUp className="h-2.5 w-2.5" />
-                                              </button>
-                                              <button onClick={() => reorderDay(phase.id, week.id, day.id, "down")} disabled={dIdx === week.days.length - 1} className="text-slate hover:text-navy disabled:opacity-30 p-0.5">
-                                                <ChevronDown className="h-2.5 w-2.5" />
-                                              </button>
-                                            </div>
-                                          )}
-                                          <Accordion.Header className="flex-1 min-w-0">
-                                            <Accordion.Trigger className="flex flex-1 items-center gap-2 text-left w-full [&[data-state=open]>svg]:rotate-180">
-                                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-navy text-white text-[10px] font-bold">
-                                                {day.dayNumber}
-                                              </span>
-                                              <span className="text-sm font-medium text-navy truncate flex-1">
-                                                {day.title || "(Untitled Day)"}
-                                              </span>
-                                              <DayTypeBadge type={day.type} className="shrink-0" />
-                                              <span className="text-[10px] text-slate shrink-0">{day.tasks.length} tasks</span>
-                                              <ChevronDown className="h-3 w-3 text-slate transition-transform duration-200 shrink-0" />
-                                            </Accordion.Trigger>
-                                          </Accordion.Header>
-                                        </div>
-                                        {!readOnly && (
-                                          <button onClick={() => deleteDay(phase.id, week.id, day.id)} className="ml-2 p-1 text-red-400 hover:bg-red-500/10 rounded transition shrink-0">
-                                            <Trash2 className="h-3 w-3" />
-                                          </button>
-                                        )}
-                                      </div>
-
-                                      {/* Day content */}
-                                      <Accordion.Content className="overflow-hidden data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up">
-                                        <div className="px-3 pb-3 sm:px-4 sm:pb-4">
-                                          <DayEditor
-                                            day={day}
-                                            onChange={(updated) => updateDay(phase.id, week.id, day.id, updated)}
-                                            onAddFromTaskLibrary={() => setTaskPickerForDay(day.id)}
-                                            onAddFromResourceLibrary={() => setResourcePickerForDay(day.id)}
-                                            readOnly={readOnly}
-                                          />
-                                        </div>
-                                      </Accordion.Content>
-                                    </Accordion.Item>
-                                  ))}
-                                </Accordion.Root>
-                              )}
-
-                              {!readOnly && week.days.length > 0 && (
-                                <button
-                                  onClick={() => addDay(phase.id, week.id)}
-                                  className="w-full rounded-lg border border-dashed border-navy/10 py-2 text-xs font-semibold text-slate hover:border-honey/30 hover:text-honey-deep transition"
-                                >
-                                  <Plus className="inline h-3 w-3 mr-1" /> Add Day
-                                </button>
-                              )}
-                            </div>
-                          </Accordion.Content>
-                        </Accordion.Item>
-                      ))}
-                    </Accordion.Root>
-                  )}
-
-                  {!readOnly && phase.weeks.length > 0 && (
-                    <button
-                      onClick={() => addWeek(phase.id)}
-                      className="w-full rounded-lg border border-dashed border-navy/10 py-2 text-xs font-semibold text-slate hover:border-honey/30 hover:text-honey-deep transition"
-                    >
-                      <Plus className="inline h-3 w-3 mr-1" /> Add Week
+                        </div>
+                        <ChevronDown className="h-4 w-4 text-slate transition-transform duration-200 shrink-0" />
+                      </Accordion.Trigger>
+                    </Accordion.Header>
+                  </div>
+                  {!readOnly && (
+                    <button onClick={() => deletePhase(phase.id)} className="ml-2 p-2 text-slate hover:text-red-500 hover:bg-red-500/10 rounded-lg transition shrink-0" title="Delete Phase">
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   )}
                 </div>
-              </Accordion.Content>
-            </Accordion.Item>
-          ))}
+
+                {/* Phase content */}
+                <Accordion.Content className="overflow-hidden data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up">
+                  <div className="p-4 sm:p-5 space-y-4">
+                    {!readOnly && (
+                      <div className="mb-2">
+                        <label className="text-[10px] font-bold uppercase text-slate tracking-wider block mb-1">Phase Focus & Description</label>
+                        <textarea
+                          value={phase.description}
+                          placeholder="Describe the main focus and key targets for this phase..."
+                          onChange={(e) => updatePhase(phase.id, { description: e.target.value })}
+                          className="w-full min-h-[50px] rounded-xl border border-navy/10 bg-white px-3 py-2 text-xs text-navy outline-none focus:border-honey resize-y"
+                        />
+                      </div>
+                    )}
+                    {readOnly && phase.description && (
+                      <p className="text-xs text-slate bg-white border border-navy/5 rounded-xl p-3 mb-2">{phase.description}</p>
+                    )}
+
+                    {/* Weeks inside phase */}
+                    {phase.weeks.length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-navy/15 bg-white p-8 text-center text-xs text-slate">
+                        No weeks added to this phase yet.
+                        {!readOnly && (
+                          <button onClick={() => addWeek(phase.id)} className="ml-2 text-honey font-bold hover:text-honey-deep underline">
+                            + Add Week
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <Accordion.Root type="multiple" className="space-y-4">
+                        {phase.weeks.map((week, wIdx) => {
+                          let weekTasksCount = 0;
+                          week.days.forEach((d) => {
+                            weekTasksCount += d.tasks.length;
+                          });
+
+                          return (
+                            <Accordion.Item
+                              key={week.id}
+                              value={week.id}
+                              className="rounded-xl border-l-4 border-l-honey border border-navy/8 bg-white shadow-sm overflow-hidden"
+                            >
+                              {/* Week header */}
+                              <div className="flex items-center justify-between border-b border-navy/5 bg-navy/[0.01] px-3.5 py-3">
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                  {!readOnly && (
+                                    <div className="flex flex-col items-center gap-0.5 shrink-0">
+                                      <button onClick={() => reorderWeek(phase.id, week.id, "up")} disabled={wIdx === 0} className="text-slate hover:text-navy disabled:opacity-30 p-0.5">
+                                        <ChevronUp className="h-3 w-3" />
+                                      </button>
+                                      <button onClick={() => reorderWeek(phase.id, week.id, "down")} disabled={wIdx === phase.weeks.length - 1} className="text-slate hover:text-navy disabled:opacity-30 p-0.5">
+                                        <ChevronDown className="h-3 w-3" />
+                                      </button>
+                                    </div>
+                                  )}
+                                  <Accordion.Header className="flex-1 min-w-0">
+                                    <Accordion.Trigger className="flex flex-1 items-center gap-3 text-left w-full [&[data-state=open]>svg]:rotate-180">
+                                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-honey/15 border border-honey text-honey-deep text-[10px] font-extrabold">
+                                        W{wIdx + 1}
+                                      </span>
+                                      <div className="min-w-0 flex-1">
+                                        {readOnly ? (
+                                          <p className="text-sm font-bold text-navy truncate">{week.title || "(Untitled Week)"}</p>
+                                        ) : (
+                                          <input
+                                            value={week.title}
+                                            placeholder="Define Week Theme (e.g. Week 1: Flexbox Layouts)"
+                                            onChange={(e) => updateWeek(phase.id, week.id, { title: e.target.value })}
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="w-full text-sm font-bold text-navy bg-transparent outline-none border-b border-transparent focus:border-honey/30 px-1 py-0.5"
+                                          />
+                                        )}
+                                        <div className="flex items-center gap-2 mt-0.5 text-[9px] text-slate font-medium">
+                                          <span>{week.days.length} Days</span>
+                                          <span>·</span>
+                                          <span>{weekTasksCount} Tasks</span>
+                                        </div>
+                                      </div>
+                                      <ChevronDown className="h-3.5 w-3.5 text-slate transition-transform duration-200 shrink-0" />
+                                    </Accordion.Trigger>
+                                  </Accordion.Header>
+                                </div>
+                                {!readOnly && (
+                                  <button onClick={() => deleteWeek(phase.id, week.id)} className="ml-2 p-1.5 text-slate hover:text-red-500 hover:bg-red-500/10 rounded-lg transition shrink-0" title="Delete Week">
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </div>
+
+                              {/* Week content */}
+                              <Accordion.Content className="overflow-hidden data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up">
+                                <div className="p-4 space-y-4">
+                                  {!readOnly && (
+                                    <div>
+                                      <label className="text-[9px] font-bold uppercase text-slate tracking-wider block mb-1">Week Goal / Milestone</label>
+                                      <input
+                                        value={week.goal}
+                                        placeholder="What should the student achieve by the end of this week?"
+                                        onChange={(e) => updateWeek(phase.id, week.id, { goal: e.target.value })}
+                                        className="w-full rounded-xl border border-navy/10 bg-navy/[0.01] px-3 py-2 text-xs text-navy outline-none focus:border-honey"
+                                      />
+                                    </div>
+                                  )}
+                                  {readOnly && week.goal && (
+                                    <p className="text-xs text-slate italic bg-navy/[0.01] border border-navy/5 p-2.5 rounded-lg">
+                                      Goal: {week.goal}
+                                    </p>
+                                  )}
+
+                                  {/* Days inside week */}
+                                  <div className="space-y-3">
+                                    <span className="text-[10px] font-extrabold uppercase text-slate tracking-wider block">Days Curriculum Timeline</span>
+                                    
+                                    {week.days.length === 0 ? (
+                                      <div className="rounded-xl border border-dashed border-navy/10 bg-navy/[0.01] p-6 text-center text-xs text-slate">
+                                        No days added to this week yet.
+                                        {!readOnly && (
+                                          <button onClick={() => addDay(phase.id, week.id)} className="ml-2 text-honey font-bold hover:text-honey-deep underline">
+                                            + Add Day
+                                          </button>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <Accordion.Root type="multiple" className="space-y-2.5">
+                                        {week.days.map((day, dIdx) => (
+                                          <Accordion.Item
+                                            key={day.id}
+                                            value={day.id}
+                                            className="rounded-xl border border-navy/5 bg-navy/[0.01] overflow-hidden"
+                                          >
+                                            {/* Day header */}
+                                            <div className="flex items-center justify-between px-3 py-2 bg-white">
+                                              <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                {!readOnly && (
+                                                  <div className="flex flex-col items-center gap-0.5 shrink-0">
+                                                    <button onClick={() => reorderDay(phase.id, week.id, day.id, "up")} disabled={dIdx === 0} className="text-slate hover:text-navy disabled:opacity-30 p-0.5">
+                                                      <ChevronUp className="h-2.5 w-2.5" />
+                                                    </button>
+                                                    <button onClick={() => reorderDay(phase.id, week.id, day.id, "down")} disabled={dIdx === week.days.length - 1} className="text-slate hover:text-navy disabled:opacity-30 p-0.5">
+                                                      <ChevronDown className="h-2.5 w-2.5" />
+                                                    </button>
+                                                  </div>
+                                                )}
+                                                <Accordion.Header className="flex-1 min-w-0">
+                                                  <Accordion.Trigger className="flex flex-1 items-center gap-2.5 text-left w-full [&[data-state=open]>svg]:rotate-180">
+                                                    <span className="flex h-6.5 w-6.5 shrink-0 items-center justify-center rounded-lg bg-navy text-white text-[10px] font-extrabold shadow-sm">
+                                                      D{day.dayNumber}
+                                                    </span>
+                                                    <span className="text-xs font-semibold text-navy truncate flex-1">
+                                                      {day.title || `Day ${day.dayNumber} (Untitled)`}
+                                                    </span>
+                                                    <DayTypeBadge type={day.type} className="shrink-0 scale-90" />
+                                                    <span className="text-[9px] text-slate font-medium bg-navy/5 px-2 py-0.5 rounded shrink-0">
+                                                      {day.tasks.length} tasks
+                                                    </span>
+                                                    <ChevronDown className="h-3 w-3 text-slate transition-transform duration-200 shrink-0" />
+                                                  </Accordion.Trigger>
+                                                </Accordion.Header>
+                                              </div>
+                                              {!readOnly && (
+                                                <button onClick={() => deleteDay(phase.id, week.id, day.id)} className="ml-2 p-1.5 text-slate hover:text-red-500 hover:bg-red-500/10 rounded transition shrink-0" title="Delete Day">
+                                                  <Trash2 className="h-3.5 w-3.5" />
+                                                </button>
+                                              )}
+                                            </div>
+
+                                            {/* Day content */}
+                                            <Accordion.Content className="overflow-hidden data-[state=open]:animate-accordion-down data-[state=closed]:animate-accordion-up">
+                                              <div className="px-3.5 pb-3.5 pt-2 bg-white">
+                                                <DayEditor
+                                                  day={day}
+                                                  onChange={(updated) => updateDay(phase.id, week.id, day.id, updated)}
+                                                  onAddFromTaskLibrary={() => setTaskPickerForDay(day.id)}
+                                                  onAddFromResourceLibrary={() => setResourcePickerForDay(day.id)}
+                                                  readOnly={readOnly}
+                                                />
+                                              </div>
+                                            </Accordion.Content>
+                                          </Accordion.Item>
+                                        ))}
+                                      </Accordion.Root>
+                                    )}
+
+                                    {!readOnly && week.days.length > 0 && (
+                                      <button
+                                        onClick={() => addDay(phase.id, week.id)}
+                                        className="w-full rounded-xl border border-dashed border-navy/10 py-2.5 text-xs font-bold text-slate bg-navy/[0.01] hover:border-honey/30 hover:text-honey-deep transition flex items-center justify-center gap-1"
+                                      >
+                                        <Plus className="h-3.5 w-3.5 text-honey" /> Add Day to Week
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              </Accordion.Content>
+                            </Accordion.Item>
+                          );
+                        })}
+                      </Accordion.Root>
+                    )}
+
+                    {!readOnly && phase.weeks.length > 0 && (
+                      <button
+                        onClick={() => addWeek(phase.id)}
+                        className="w-full rounded-xl border border-dashed border-navy/10 py-2.5 text-xs font-bold text-slate bg-navy/[0.01] hover:border-honey/30 hover:text-honey-deep transition flex items-center justify-center gap-1"
+                      >
+                        <Plus className="h-3.5 w-3.5 text-honey" /> Add Week to Phase
+                      </button>
+                    )}
+                  </div>
+                </Accordion.Content>
+              </Accordion.Item>
+            );
+          })}
         </Accordion.Root>
       )}
 
@@ -689,9 +792,9 @@ export function CurriculumBuilder({
       {!readOnly && phases.length > 0 && (
         <button
           onClick={addPhase}
-          className="w-full rounded-2xl border-2 border-dashed border-navy/10 py-4 text-sm font-semibold text-slate hover:border-honey/30 hover:text-honey-deep transition"
+          className="w-full rounded-2xl border-2 border-dashed border-navy/10 py-4 text-sm font-bold text-slate hover:border-honey/40 hover:text-honey-deep transition flex items-center justify-center gap-1"
         >
-          <Plus className="inline h-4 w-4 mr-2" /> Add Phase
+          <Plus className="h-4 w-4 text-honey" /> Add Phase
         </button>
       )}
 

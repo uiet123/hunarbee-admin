@@ -1,6 +1,6 @@
 // ─── Curriculum Service ───
-// Central data access layer. All curriculum data goes through here.
-// Currently backed by localStorage; swap to API calls later without changing the UI.
+// Central data access layer. All curriculum data goes through API calls.
+// Backed by the programs-service REST API.
 
 import type {
   Program,
@@ -14,62 +14,13 @@ import type {
   ResourceLibraryItem,
   EnrollmentCurriculumSnapshot,
   ValidationResult,
+  VideoLesson,
+  VideoLessonStatus,
+  LearningContent,
+  TaskPrerequisite,
 } from './types';
-import {
-  MOCK_PROGRAMS,
-  MOCK_PLANS,
-  MOCK_TEMPLATES,
-  MOCK_TASK_LIBRARY,
-  MOCK_RESOURCE_LIBRARY,
-} from './mock-data';
 import { validateImportJSON, validateForPublish, recalculateDayNumbers } from './validators';
-
-// ─── Persistence Helpers ───
-
-const STORAGE_KEYS = {
-  templates: 'hunarbee_curriculum_templates',
-  taskLibrary: 'hunarbee_task_library',
-  resourceLibrary: 'hunarbee_resource_library',
-} as const;
-
-function readStore<T>(key: string, fallback: T): T {
-  if (typeof window === 'undefined') return fallback;
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function writeStore<T>(key: string, data: T): void {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(key, JSON.stringify(data));
-}
-
-function getTemplatesStore(): CurriculumTemplate[] {
-  return readStore(STORAGE_KEYS.templates, MOCK_TEMPLATES);
-}
-
-function setTemplatesStore(templates: CurriculumTemplate[]): void {
-  writeStore(STORAGE_KEYS.templates, templates);
-}
-
-function getTaskLibraryStore(): TaskLibraryItem[] {
-  return readStore(STORAGE_KEYS.taskLibrary, MOCK_TASK_LIBRARY);
-}
-
-function setTaskLibraryStore(items: TaskLibraryItem[]): void {
-  writeStore(STORAGE_KEYS.taskLibrary, items);
-}
-
-function getResourceLibraryStore(): ResourceLibraryItem[] {
-  return readStore(STORAGE_KEYS.resourceLibrary, MOCK_RESOURCE_LIBRARY);
-}
-
-function setResourceLibraryStore(items: ResourceLibraryItem[]): void {
-  writeStore(STORAGE_KEYS.resourceLibrary, items);
-}
+import { fetchApi } from '@/lib/api';
 
 // ─── ID Generation ───
 
@@ -91,59 +42,171 @@ function clonePhasesWithNewIds(phases: CurriculumPhase[]): CurriculumPhase[] {
     weeks: phase.weeks.map((week) => ({
       ...week,
       id: generateId('week'),
-      days: week.days.map((day) => ({
-        ...day,
-        id: generateId('day'),
-        tasks: day.tasks.map((task) => ({
-          ...task,
-          id: generateId('task'),
-        })),
-        resources: day.resources.map((res) => ({
-          ...res,
-          id: generateId('res'),
-        })),
-      })),
+      days: week.days.map((day) => {
+        const lcIdMap: Record<string, string> = {};
+        const clonedLearningContent = (day.learningContent || []).map((lc) => {
+          const newId = generateId('lc');
+          lcIdMap[lc.id] = newId;
+          return {
+            ...lc,
+            id: newId,
+          };
+        });
+
+        const clonedTasks = day.tasks.map((task) => {
+          const clonedPrerequisites = (task.prerequisites || []).map((prereq) => {
+            const newTargetId = lcIdMap[prereq.targetId] || prereq.targetId;
+            return {
+              ...prereq,
+              id: generateId('prereq'),
+              targetId: newTargetId,
+            };
+          });
+          return {
+            ...task,
+            id: generateId('task'),
+            prerequisites: clonedPrerequisites,
+          };
+        });
+
+        return {
+          ...day,
+          id: generateId('day'),
+          learningContent: clonedLearningContent,
+          tasks: clonedTasks,
+          resources: day.resources.map((res) => ({
+            ...res,
+            id: generateId('res'),
+          })),
+        };
+      }),
     })),
   }));
 }
 
-// ─── Program & Plan Access ───
+// ─── API Helpers ───
+
+async function fetchTemplates(): Promise<CurriculumTemplate[]> {
+  try {
+    const res = await fetchApi<{ success: boolean; data: CurriculumTemplate[] }>('/programs/curriculum-templates');
+    return res?.success && Array.isArray(res.data) ? res.data : [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveTemplates(templates: CurriculumTemplate[]): Promise<void> {
+  await fetchApi('/programs/curriculum-templates', {
+    method: 'POST',
+    body: JSON.stringify({ templates }),
+  });
+}
+
+async function fetchLibrary<T>(endpoint: string): Promise<T[]> {
+  try {
+    const res = await fetchApi<{ success: boolean; data: T[] }>(`/programs/${endpoint}`);
+    return res?.success && Array.isArray(res.data) ? res.data : [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveLibrary<T>(endpoint: string, items: T[]): Promise<void> {
+  await fetchApi(`/programs/${endpoint}`, {
+    method: 'POST',
+    body: JSON.stringify({ items }),
+  });
+}
+
+// ─── Program & Plan Access (from admin-service DB) ───
 
 export async function getPrograms(): Promise<Program[]> {
-  return MOCK_PROGRAMS.filter((p) => p.status === 'active');
+  try {
+    const res = await fetchApi<{ success: boolean; data: any[] }>('/admin/programs');
+    if (res?.success && Array.isArray(res.data)) {
+      return res.data.map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description || '',
+        status: p.status === 'published' ? 'active' : p.status,
+      }));
+    }
+    return [];
+  } catch {
+    return [];
+  }
 }
 
 export async function getProgram(id: string): Promise<Program> {
-  const prog = MOCK_PROGRAMS.find((p) => p.id === id);
+  const programs = await getPrograms();
+  const prog = programs.find((p) => p.id === id);
   if (!prog) throw new Error(`Program not found: ${id}`);
   return prog;
 }
 
 export async function getPlansForProgram(programId: string): Promise<InternshipPlan[]> {
-  return MOCK_PLANS.filter((p) => p.programId === programId && p.status === 'active');
+  try {
+    const res = await fetchApi<{ success: boolean; data: any[] }>('/admin/programs');
+    if (res?.success && Array.isArray(res.data)) {
+      const program = res.data.find((p: any) => p.id === programId);
+      if (program && Array.isArray(program.plans)) {
+        return program.plans.map((plan: any) => ({
+          id: plan.id,
+          programId: programId,
+          name: plan.name,
+          durationDays: plan.total_days || 30,
+          price: plan.price || (plan.price_paise ? plan.price_paise / 100 : 0),
+          status: plan.status === 'published' ? 'active' : (plan.status || 'active'),
+        }));
+      }
+    }
+    return [];
+  } catch {
+    return [];
+  }
 }
 
 export async function getPlan(planId: string): Promise<InternshipPlan> {
-  const plan = MOCK_PLANS.find((p) => p.id === planId);
-  if (!plan) throw new Error(`Plan not found: ${planId}`);
-  return plan;
+  try {
+    const res = await fetchApi<{ success: boolean; data: any[] }>('/admin/programs');
+    if (res?.success && Array.isArray(res.data)) {
+      for (const prog of res.data) {
+        if (Array.isArray(prog.plans)) {
+          const plan = prog.plans.find((p: any) => p.id === planId);
+          if (plan) {
+            return {
+              id: plan.id,
+              programId: prog.id,
+              name: plan.name,
+              durationDays: plan.total_days || 30,
+              price: plan.price || (plan.price_paise ? plan.price_paise / 100 : 0),
+              status: plan.status === 'published' ? 'active' : (plan.status || 'active'),
+            };
+          }
+        }
+      }
+    }
+  } catch {
+    // fall through
+  }
+  throw new Error(`Plan not found: ${planId}`);
 }
 
 // ─── Template Management ───
 
 export async function getTemplates(): Promise<CurriculumTemplate[]> {
-  return getTemplatesStore();
+  return fetchTemplates();
 }
 
 export async function getTemplate(id: string): Promise<CurriculumTemplate> {
-  const templates = getTemplatesStore();
+  const templates = await fetchTemplates();
   const tmpl = templates.find((t) => t.id === id);
   if (!tmpl) throw new Error(`Template not found: ${id}`);
   return deepClone(tmpl);
 }
 
 export async function getTemplateForPlan(planId: string): Promise<CurriculumTemplate | null> {
-  const templates = getTemplatesStore();
+  const templates = await fetchTemplates();
   return templates.find((t) => t.planId === planId) || null;
 }
 
@@ -187,26 +250,20 @@ export async function createTemplate(data: {
     ],
   };
 
-  const templates = getTemplatesStore();
+  const templates = await fetchTemplates();
   templates.push(template);
-  setTemplatesStore(templates);
+  await saveTemplates(templates);
 
   return deepClone(template);
 }
 
 export async function deleteTemplate(id: string): Promise<void> {
-  const templates = getTemplatesStore();
+  const templates = await fetchTemplates();
   const idx = templates.findIndex((t) => t.id === id);
   if (idx === -1) throw new Error(`Template not found: ${id}`);
 
-  const tmpl = templates[idx];
-  const hasNonDraft = tmpl.versions.some((v) => v.status !== 'DRAFT');
-  if (hasNonDraft) {
-    throw new Error('Cannot delete template that has published or archived versions.');
-  }
-
   templates.splice(idx, 1);
-  setTemplatesStore(templates);
+  await saveTemplates(templates);
 }
 
 // ─── Version Management ───
@@ -226,7 +283,7 @@ export async function updateVersion(
   versionId: string,
   data: Partial<Pick<CurriculumTemplateVersion, 'phases'>>,
 ): Promise<CurriculumTemplateVersion> {
-  const templates = getTemplatesStore();
+  const templates = await fetchTemplates();
   const tmpl = templates.find((t) => t.id === templateId);
   if (!tmpl) throw new Error(`Template not found: ${templateId}`);
 
@@ -243,7 +300,7 @@ export async function updateVersion(
 
   ver.updatedAt = new Date().toISOString();
   tmpl.updatedAt = ver.updatedAt;
-  setTemplatesStore(templates);
+  await saveTemplates(templates);
 
   return deepClone(ver);
 }
@@ -252,7 +309,7 @@ export async function publishVersion(
   templateId: string,
   versionId: string,
 ): Promise<{ version: CurriculumTemplateVersion; validation: ValidationResult }> {
-  const templates = getTemplatesStore();
+  const templates = await fetchTemplates();
   const tmpl = templates.find((t) => t.id === templateId);
   if (!tmpl) throw new Error(`Template not found: ${templateId}`);
 
@@ -284,7 +341,7 @@ export async function publishVersion(
   ver.updatedAt = now;
   tmpl.currentPublishedVersionId = ver.id;
   tmpl.updatedAt = now;
-  setTemplatesStore(templates);
+  await saveTemplates(templates);
 
   return { version: deepClone(ver), validation };
 }
@@ -293,7 +350,7 @@ export async function archiveVersion(
   templateId: string,
   versionId: string,
 ): Promise<CurriculumTemplateVersion> {
-  const templates = getTemplatesStore();
+  const templates = await fetchTemplates();
   const tmpl = templates.find((t) => t.id === templateId);
   if (!tmpl) throw new Error(`Template not found: ${templateId}`);
 
@@ -311,7 +368,7 @@ export async function archiveVersion(
   ver.status = 'ARCHIVED';
   ver.updatedAt = new Date().toISOString();
   tmpl.updatedAt = ver.updatedAt;
-  setTemplatesStore(templates);
+  await saveTemplates(templates);
 
   return deepClone(ver);
 }
@@ -320,7 +377,7 @@ export async function createNewVersionFromPublished(
   templateId: string,
   sourceVersionId: string,
 ): Promise<CurriculumTemplateVersion> {
-  const templates = getTemplatesStore();
+  const templates = await fetchTemplates();
   const tmpl = templates.find((t) => t.id === templateId);
   if (!tmpl) throw new Error(`Template not found: ${templateId}`);
 
@@ -348,7 +405,7 @@ export async function createNewVersionFromPublished(
 
   tmpl.versions.push(newVersion);
   tmpl.updatedAt = now;
-  setTemplatesStore(templates);
+  await saveTemplates(templates);
 
   return deepClone(newVersion);
 }
@@ -357,7 +414,7 @@ export async function deleteVersion(
   templateId: string,
   versionId: string,
 ): Promise<void> {
-  const templates = getTemplatesStore();
+  const templates = await fetchTemplates();
   const tmpl = templates.find((t) => t.id === templateId);
   if (!tmpl) throw new Error(`Template not found: ${templateId}`);
 
@@ -370,7 +427,7 @@ export async function deleteVersion(
 
   tmpl.versions = tmpl.versions.filter((v) => v.id !== versionId);
   tmpl.updatedAt = new Date().toISOString();
-  setTemplatesStore(templates);
+  await saveTemplates(templates);
 }
 
 // ─── Duplication ───
@@ -427,9 +484,9 @@ export async function duplicateTemplate(
     ],
   };
 
-  const templates = getTemplatesStore();
+  const templates = await fetchTemplates();
   templates.push(newTemplate);
-  setTemplatesStore(templates);
+  await saveTemplates(templates);
 
   return deepClone(newTemplate);
 }
@@ -501,9 +558,9 @@ export async function importTemplate(
     ],
   };
 
-  const templates = getTemplatesStore();
+  const templates = await fetchTemplates();
   templates.push(template);
-  setTemplatesStore(templates);
+  await saveTemplates(templates);
 
   return { template: deepClone(template), validation };
 }
@@ -560,11 +617,12 @@ export async function createEnrollmentSnapshot(
 // ─── Task Library ───
 
 export async function getTaskLibrary(): Promise<TaskLibraryItem[]> {
-  return getTaskLibraryStore().filter((i) => !i.archived);
+  const all = await fetchLibrary<TaskLibraryItem>('task-library');
+  return all.filter((i) => !i.archived);
 }
 
 export async function getTaskLibraryAll(): Promise<TaskLibraryItem[]> {
-  return getTaskLibraryStore();
+  return fetchLibrary<TaskLibraryItem>('task-library');
 }
 
 export async function createTaskLibraryItem(data: Omit<TaskLibraryItem, 'id' | 'createdAt' | 'updatedAt' | 'archived'>): Promise<TaskLibraryItem> {
@@ -577,9 +635,9 @@ export async function createTaskLibraryItem(data: Omit<TaskLibraryItem, 'id' | '
     archived: false,
   };
 
-  const items = getTaskLibraryStore();
+  const items = await fetchLibrary<TaskLibraryItem>('task-library');
   items.push(item);
-  setTaskLibraryStore(items);
+  await saveLibrary('task-library', items);
 
   return deepClone(item);
 }
@@ -588,12 +646,12 @@ export async function updateTaskLibraryItem(
   id: string,
   data: Partial<Omit<TaskLibraryItem, 'id' | 'createdAt'>>,
 ): Promise<TaskLibraryItem> {
-  const items = getTaskLibraryStore();
+  const items = await fetchLibrary<TaskLibraryItem>('task-library');
   const idx = items.findIndex((i) => i.id === id);
   if (idx === -1) throw new Error(`Task library item not found: ${id}`);
 
   items[idx] = { ...items[idx], ...data, updatedAt: new Date().toISOString() };
-  setTaskLibraryStore(items);
+  await saveLibrary('task-library', items);
 
   return deepClone(items[idx]);
 }
@@ -603,7 +661,7 @@ export async function archiveTaskLibraryItem(id: string): Promise<void> {
 }
 
 export async function copyTaskToDay(libraryItemId: string): Promise<CurriculumTask> {
-  const items = getTaskLibraryStore();
+  const items = await fetchLibrary<TaskLibraryItem>('task-library');
   const item = items.find((i) => i.id === libraryItemId);
   if (!item) throw new Error(`Task library item not found: ${libraryItemId}`);
 
@@ -623,11 +681,12 @@ export async function copyTaskToDay(libraryItemId: string): Promise<CurriculumTa
 // ─── Resource Library ───
 
 export async function getResourceLibrary(): Promise<ResourceLibraryItem[]> {
-  return getResourceLibraryStore().filter((i) => !i.archived);
+  const all = await fetchLibrary<ResourceLibraryItem>('resource-library');
+  return all.filter((i) => !i.archived);
 }
 
 export async function getResourceLibraryAll(): Promise<ResourceLibraryItem[]> {
-  return getResourceLibraryStore();
+  return fetchLibrary<ResourceLibraryItem>('resource-library');
 }
 
 export async function createResourceLibraryItem(data: Omit<ResourceLibraryItem, 'id' | 'createdAt' | 'updatedAt' | 'archived'>): Promise<ResourceLibraryItem> {
@@ -640,9 +699,9 @@ export async function createResourceLibraryItem(data: Omit<ResourceLibraryItem, 
     archived: false,
   };
 
-  const items = getResourceLibraryStore();
+  const items = await fetchLibrary<ResourceLibraryItem>('resource-library');
   items.push(item);
-  setResourceLibraryStore(items);
+  await saveLibrary('resource-library', items);
 
   return deepClone(item);
 }
@@ -651,12 +710,12 @@ export async function updateResourceLibraryItem(
   id: string,
   data: Partial<Omit<ResourceLibraryItem, 'id' | 'createdAt'>>,
 ): Promise<ResourceLibraryItem> {
-  const items = getResourceLibraryStore();
+  const items = await fetchLibrary<ResourceLibraryItem>('resource-library');
   const idx = items.findIndex((i) => i.id === id);
   if (idx === -1) throw new Error(`Resource library item not found: ${id}`);
 
   items[idx] = { ...items[idx], ...data, updatedAt: new Date().toISOString() };
-  setResourceLibraryStore(items);
+  await saveLibrary('resource-library', items);
 
   return deepClone(items[idx]);
 }
@@ -666,7 +725,7 @@ export async function archiveResourceLibraryItem(id: string): Promise<void> {
 }
 
 export async function copyResourceToDay(libraryItemId: string): Promise<CurriculumResource> {
-  const items = getResourceLibraryStore();
+  const items = await fetchLibrary<ResourceLibraryItem>('resource-library');
   const item = items.find((i) => i.id === libraryItemId);
   if (!item) throw new Error(`Resource library item not found: ${libraryItemId}`);
 
@@ -679,4 +738,61 @@ export async function copyResourceToDay(libraryItemId: string): Promise<Curricul
     description: item.description,
     sourceLibraryId: item.id,
   };
+}
+
+// ─── Video Library ───
+
+export async function getVideoLibrary(): Promise<VideoLesson[]> {
+  const all = await fetchLibrary<VideoLesson>('video-library');
+  return all.filter((v) => v.status !== 'ARCHIVED');
+}
+
+export async function getVideoLibraryAll(): Promise<VideoLesson[]> {
+  return fetchLibrary<VideoLesson>('video-library');
+}
+
+export async function getVideoLesson(id: string): Promise<VideoLesson> {
+  const store = await fetchLibrary<VideoLesson>('video-library');
+  const video = store.find((v) => v.id === id);
+  if (!video) throw new Error(`Video lesson not found: ${id}`);
+  return deepClone(video);
+}
+
+export async function createVideoLesson(data: Omit<VideoLesson, 'id' | 'createdAt' | 'updatedAt' | 'status'> & { status?: VideoLessonStatus }): Promise<VideoLesson> {
+  const now = new Date().toISOString();
+  const item: VideoLesson = {
+    ...data,
+    id: generateId('vles'),
+    status: data.status || 'DRAFT',
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const store = await fetchLibrary<VideoLesson>('video-library');
+  store.push(item);
+  await saveLibrary('video-library', store);
+
+  return deepClone(item);
+}
+
+export async function updateVideoLesson(
+  id: string,
+  data: Partial<Omit<VideoLesson, 'id' | 'createdAt'>>,
+): Promise<VideoLesson> {
+  const store = await fetchLibrary<VideoLesson>('video-library');
+  const idx = store.findIndex((v) => v.id === id);
+  if (idx === -1) throw new Error(`Video lesson not found: ${id}`);
+
+  store[idx] = {
+    ...store[idx],
+    ...data,
+    updatedAt: new Date().toISOString(),
+  };
+  await saveLibrary('video-library', store);
+
+  return deepClone(store[idx]);
+}
+
+export async function archiveVideoLesson(id: string): Promise<void> {
+  await updateVideoLesson(id, { status: 'ARCHIVED' });
 }

@@ -162,15 +162,13 @@ export function TemplateCard({
               <Plus className="h-4 w-4" />
             </button>
           )}
-          {allDraft && (
-            <button
-              onClick={() => onDelete(template.id)}
-              className="rounded-lg p-2 text-slate transition hover:bg-red-500/10 hover:text-red-500"
-              title="Delete"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          )}
+          <button
+            onClick={() => onDelete(template.id)}
+            className="rounded-lg p-2 text-slate transition hover:bg-red-500/10 hover:text-red-500"
+            title="Delete Template"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
         </div>
         <button
           onClick={() => onEdit(template.id, latestVersion?.id || "")}

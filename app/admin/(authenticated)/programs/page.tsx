@@ -3,10 +3,12 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Plus, GraduationCap, ArrowRight, Settings2, Eye, EyeOff, Archive } from "lucide-react";
+import { Plus, GraduationCap, ArrowRight, Settings2, Eye, EyeOff, Archive, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { fetchApi } from "@/lib/api";
+import { useAlertModal } from "@/components/admin/ui/AlertModalProvider";
+import { CreateProgramModal } from "@/components/admin/programs/CreateProgramModal";
 
 interface Plan {
   id: string;
@@ -25,13 +27,20 @@ interface Program {
 export default function ProgramsList() {
   const [programs, setPrograms] = useState<Program[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const { showAlert, showConfirm } = useAlertModal();
 
-  useEffect(() => {
+  const loadPrograms = () => {
+    setLoading(true);
     fetchApi<{ success: boolean; data: Program[] }>("/admin/programs")
       .then(res => {
         if (res?.success) setPrograms(res.data);
       })
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadPrograms();
   }, []);
 
   const toggleStatus = async (id: string, currentStatus: string) => {
@@ -48,6 +57,32 @@ export default function ProgramsList() {
     });
   };
 
+  const deleteProgram = async (id: string, name: string) => {
+    if (!(await showConfirm(`Are you sure you want to permanently delete the program "${name}"? This action cannot be undone and will delete all associated plans and curriculum data.`))) return;
+    
+    try {
+      await fetchApi(`/admin/programs/${id}`, { method: "DELETE" });
+      setPrograms(programs.filter(p => p.id !== id));
+      await showAlert("Program deleted successfully.", "Success", "success");
+    } catch (error) {
+      await showAlert("Failed to delete program: " + (error as Error).message, "Error", "error");
+    }
+  };
+
+  const handleCreateProgram = async (data: { name: string; description: string; duration: string; mode: string; highlights: string[] }) => {
+    try {
+      await fetchApi("/admin/programs", {
+        method: "POST",
+        body: JSON.stringify(data),
+      });
+      setShowCreateModal(false);
+      await showAlert("Program created successfully.", "Success", "success");
+      loadPrograms();
+    } catch (error) {
+      await showAlert("Failed to create program: " + (error as Error).message, "Error", "error");
+    }
+  };
+
   if (loading) return <div className="p-8 text-center text-slate">Loading programs...</div>;
 
   return (
@@ -57,7 +92,7 @@ export default function ProgramsList() {
           <h2 className="text-xl font-bold tracking-tight text-navy">Internship Programs</h2>
           <p className="text-sm text-slate mt-1">Manage and create internship tracks and their plans.</p>
         </div>
-        <Button className="bg-navy text-white hover:bg-navy/90">
+        <Button onClick={() => setShowCreateModal(true)} className="bg-navy text-white hover:bg-navy/90">
           <Plus className="mr-2 h-4 w-4" /> Create Program
         </Button>
       </div>
@@ -114,8 +149,12 @@ export default function ProgramsList() {
                 >
                   {program.status === "published" ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
-                <button className="rounded-lg p-2 text-slate transition hover:bg-red-500/10 hover:text-red-500" title="Archive">
-                  <Archive className="h-4 w-4" />
+                <button 
+                  onClick={() => deleteProgram(program.id, program.name)}
+                  className="rounded-lg p-2 text-slate transition hover:bg-red-500/10 hover:text-red-500" 
+                  title="Delete"
+                >
+                  <Trash2 className="h-4 w-4" />
                 </button>
               </div>
               <Link
@@ -128,6 +167,13 @@ export default function ProgramsList() {
           </motion.div>
         ))}
       </div>
+
+      {showCreateModal && (
+        <CreateProgramModal
+          onClose={() => setShowCreateModal(false)}
+          onSave={handleCreateProgram}
+        />
+      )}
     </div>
   );
 }

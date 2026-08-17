@@ -7,6 +7,7 @@ import { DAY_TYPES } from "@/lib/curriculum/types";
 import { DayTypeBadge, getDayTypeConfig } from "./DayTypeBadge";
 import { TaskEditor } from "./TaskEditor";
 import { ResourceEditor } from "./ResourceEditor";
+import { LearningContentEditor } from "./LearningContentEditor";
 import { Button } from "@/components/ui/button";
 import { generateId } from "@/lib/curriculum";
 
@@ -223,6 +224,21 @@ export function DayEditor({
         </div>
       </div>
 
+      {/* Learning Content */}
+      <div>
+        <div className="mb-3 flex items-center justify-between">
+          <h5 className="text-xs font-bold uppercase tracking-wider text-navy">
+            Learning Content <span className="font-normal text-slate">({(day.learningContent || []).length})</span>
+          </h5>
+        </div>
+        <LearningContentEditor
+          learningContent={day.learningContent || []}
+          tasks={day.tasks}
+          onChange={(updated) => onChange({ ...day, learningContent: updated })}
+          readOnly={readOnly}
+        />
+      </div>
+
       {/* Tasks */}
       <div>
         <div className="mb-3 flex items-center justify-between">
@@ -253,6 +269,7 @@ export function DayEditor({
                 task={task}
                 index={tIdx}
                 totalTasks={day.tasks.length}
+                learningContent={day.learningContent || []}
                 onChange={(updated) => updateTask(task.id, updated)}
                 onDelete={() => deleteTask(task.id)}
                 onReorder={(dir) => reorderTask(task.id, dir)}
