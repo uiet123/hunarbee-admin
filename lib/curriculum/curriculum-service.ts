@@ -521,7 +521,16 @@ export async function importTemplate(
   const plan = await getPlan(planId);
   const existingForPlan = await getTemplateForPlan(planId);
   if (existingForPlan) {
-    throw new Error(`Plan "${plan.name}" already has a curriculum template.`);
+    // Check if the existing template is empty (latest version has 0 phases)
+    const latestVersion = existingForPlan.versions[existingForPlan.versions.length - 1];
+    const isEmpty = !latestVersion || latestVersion.phases.length === 0;
+    if (!isEmpty) {
+      throw new Error(`Plan "${plan.name}" already has a curriculum template with content. Delete it first to reimport.`);
+    }
+    // Remove the empty template so we can replace it
+    const templates = await fetchTemplates();
+    const filtered = templates.filter((t) => t.id !== existingForPlan.id);
+    await saveTemplates(filtered);
   }
 
   const obj = parsed as Record<string, unknown>;

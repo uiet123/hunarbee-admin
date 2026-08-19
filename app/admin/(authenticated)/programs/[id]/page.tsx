@@ -3,12 +3,13 @@
 import { useState, useEffect, use } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { ArrowLeft, Plus, CalendarDays, Users, IndianRupee, ArrowRight, Settings } from "lucide-react";
+import { ArrowLeft, Plus, CalendarDays, Users, IndianRupee, ArrowRight, Settings, Trash2, Eye, EyeOff, Edit2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { fetchApi } from "@/lib/api";
 import { useAlertModal } from "@/components/admin/ui/AlertModalProvider";
 import { AddPlanModal } from "@/components/admin/programs/AddPlanModal";
+import { EditPlanModal } from "@/components/admin/programs/EditPlanModal";
 
 interface Plan {
   id: string;
@@ -32,7 +33,8 @@ export default function ProgramDetails({ params }: { params: Promise<{ id: strin
   const [program, setProgram] = useState<Program | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAddPlan, setShowAddPlan] = useState(false);
-  const { showAlert } = useAlertModal();
+  const [editPlan, setEditPlan] = useState<Plan | null>(null);
+  const { showAlert, showConfirm } = useAlertModal();
 
   const loadProgram = () => {
     setLoading(true);
@@ -65,6 +67,44 @@ export default function ProgramDetails({ params }: { params: Promise<{ id: strin
       loadProgram();
     } catch (error) {
       await showAlert("Failed to create plan: " + (error as Error).message, "Error", "error");
+    }
+  };
+
+  const handleEditPlan = async (planId: string, data: { price: number; duration_months: number; total_days: number }) => {
+    try {
+      await fetchApi(`/admin/plans/${planId}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      });
+      setEditPlan(null);
+      await showAlert("Plan updated successfully.", "Success", "success");
+      loadProgram();
+    } catch (error) {
+      await showAlert("Failed to update plan: " + (error as Error).message, "Error", "error");
+    }
+  };
+
+  const handleDeletePlan = async (id: string, name: string) => {
+    if (!(await showConfirm(`Are you sure you want to permanently delete the plan "${name}"?`))) return;
+    try {
+      await fetchApi(`/admin/plans/${id}`, { method: "DELETE" });
+      await showAlert("Plan deleted successfully.", "Success", "success");
+      loadProgram();
+    } catch (error) {
+      await showAlert("Failed to delete plan: " + (error as Error).message, "Error", "error");
+    }
+  };
+
+  const togglePlanStatus = async (planId: string, currentStatus: string) => {
+    const newStatus = currentStatus === "published" ? "draft" : "published";
+    try {
+      await fetchApi(`/admin/plans/${planId}/status`, {
+        method: "PUT",
+        body: JSON.stringify({ status: newStatus }),
+      });
+      loadProgram();
+    } catch (error) {
+      await showAlert("Failed to update plan status: " + (error as Error).message, "Error", "error");
     }
   };
 
@@ -130,12 +170,30 @@ export default function ProgramDetails({ params }: { params: Promise<{ id: strin
             </div>
 
             <div className="mt-6 flex items-center justify-between border-t border-navy/5 pt-4">
-              <Link
-                href={`/admin/plans/${plan.id}`}
-                className="flex items-center text-sm font-medium text-slate hover:text-navy"
-              >
-                <Settings className="mr-1.5 h-4 w-4" /> Settings
-              </Link>
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={() => setEditPlan(plan)}
+                  className="flex items-center text-sm font-medium text-slate hover:text-navy transition"
+                  title="Edit Plan"
+                >
+                  <Edit2 className="mr-1.5 h-4 w-4" /> Edit
+                </button>
+                <button
+                  onClick={() => togglePlanStatus(plan.id, plan.status)}
+                  className="flex items-center text-sm font-medium text-slate hover:text-navy transition"
+                  title={plan.status === "published" ? "Unpublish Plan" : "Publish Plan"}
+                >
+                  {plan.status === "published" ? <EyeOff className="mr-1.5 h-4 w-4" /> : <Eye className="mr-1.5 h-4 w-4" />}
+                  {plan.status === "published" ? "Unpublish" : "Publish"}
+                </button>
+                <button
+                  onClick={() => handleDeletePlan(plan.id, plan.name)}
+                  className="flex items-center text-sm font-medium text-red-500/80 hover:text-red-500 transition"
+                  title="Delete Plan"
+                >
+                  <Trash2 className="mr-1.5 h-4 w-4" /> Delete
+                </button>
+              </div>
               <Link
                 href={`/admin/curriculum/${plan.id}`}
                 className="flex items-center rounded-xl bg-honey/10 px-4 py-2 text-sm font-semibold text-honey-deep hover:bg-honey/20 transition"
@@ -151,6 +209,14 @@ export default function ProgramDetails({ params }: { params: Promise<{ id: strin
         <AddPlanModal
           onClose={() => setShowAddPlan(false)}
           onSave={handleAddPlan}
+        />
+      )}
+
+      {editPlan && (
+        <EditPlanModal
+          plan={editPlan}
+          onClose={() => setEditPlan(null)}
+          onSave={handleEditPlan}
         />
       )}
     </div>

@@ -9,9 +9,7 @@ const ROUTE_TITLES: Record<string, string> = {
   "/admin/curriculum-templates": "Curriculum Templates",
   "/admin/task-library": "Task Library",
   "/admin/resource-library": "Resource Library",
-  "/admin/applications": "Applications",
-  "/admin/students": "Students",
-  "/admin/payments": "Payments",
+  "/admin/directory": "Directory",
   "/admin/settings": "Settings",
 };
 

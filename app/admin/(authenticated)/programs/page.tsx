@@ -44,17 +44,35 @@ export default function ProgramsList() {
   }, []);
 
   const toggleStatus = async (id: string, currentStatus: string) => {
+    const program = programs.find(p => p.id === id);
     const newStatus = currentStatus === "published" ? "draft" : "published";
     
+    if (newStatus === "published" && program && program.plans.length === 0) {
+      await showAlert("You cannot publish a program without any plans. Please create at least one plan first.", "Cannot Publish", "error");
+      return;
+    }
+
     // Optimistic update
     setPrograms(programs.map(p => 
-      p.id === id ? { ...p, status: newStatus } : p
+      p.id === id ? { ...p, status: newStatus as "published" | "draft" | "archived" } : p
     ));
 
-    await fetchApi(`/admin/programs/${id}/status`, {
-      method: "PUT",
-      body: JSON.stringify({ status: newStatus }),
-    });
+    try {
+      const res = await fetchApi<{ success: boolean; message?: string }>(`/admin/programs/${id}/status`, {
+        method: "PUT",
+        body: JSON.stringify({ status: newStatus }),
+      });
+      
+      if (!res?.success) {
+        throw new Error(res?.message || "Failed to update status");
+      }
+    } catch (error) {
+      // Revert optimistic update on failure
+      setPrograms(programs.map(p => 
+        p.id === id ? { ...p, status: currentStatus as "published" | "draft" | "archived" } : p
+      ));
+      await showAlert("Failed to update status: " + (error as Error).message, "Error", "error");
+    }
   };
 
   const deleteProgram = async (id: string, name: string) => {

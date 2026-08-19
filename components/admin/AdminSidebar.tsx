@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -14,7 +15,6 @@ import {
   LogOut,
   Menu,
   X,
-  ShieldAlert,
   BookOpen,
   ListChecks,
   Library,
@@ -30,10 +30,7 @@ const NAV_ITEMS = [
   { href: "/admin/task-library", label: "Task Library", icon: ListChecks },
   { href: "/admin/resource-library", label: "Resource Library", icon: Library },
   { href: "/admin/video-library", label: "Video Library", icon: Video },
-  { href: "/admin/applications", label: "Applications", icon: FileText },
-  { href: "/admin/students", label: "Students", icon: Users },
-  { href: "/admin/payments", label: "Payments", icon: CreditCard },
-  { href: "/admin/settings", label: "Settings", icon: Settings },
+  { href: "/admin/directory", label: "Directory", icon: Users },
 ] as const;
 
 export function AdminSidebar() {
@@ -51,9 +48,13 @@ export function AdminSidebar() {
       {/* Brand */}
       <div className="flex items-center justify-between px-5 pt-6 pb-4 border-b border-white/[0.06]">
         <Link href="/admin" className="flex items-center gap-2.5" onClick={() => setMobileOpen(false)}>
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-honey to-honey-deep text-navy shadow-lg">
-            <ShieldAlert className="h-5 w-5" />
-          </div>
+          <Image
+            src="/logo.png"
+            alt="Hunarbee"
+            width={36}
+            height={36}
+            className="h-9 w-9 rounded-xl object-contain shadow-lg"
+          />
           <BrandWordmark onDark className="text-lg" />
         </Link>
         <button
@@ -64,14 +65,6 @@ export function AdminSidebar() {
           <X className="h-5 w-5" />
         </button>
       </div>
-
-      <div className="mx-5 mt-4 mb-2 flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2">
-        <ShieldAlert className="h-3.5 w-3.5 text-red-400" />
-        <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-red-400">
-          Admin Portal
-        </span>
-      </div>
-
       {/* Navigation */}
       <nav className="mt-4 flex-1 space-y-1 px-3">
         {NAV_ITEMS.map((item) => {

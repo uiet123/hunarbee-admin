@@ -50,7 +50,9 @@ export function ImportModal({ open, onClose, onImported }: ImportModalProps) {
         const checks: Record<string, boolean> = {};
         for (const plan of loadedPlans) {
           const existing = await getTemplateForPlan(plan.id);
-          checks[plan.id] = !!existing;
+          // Only block if the template has actual content (phases > 0)
+          const latestVersion = existing?.versions?.[existing.versions.length - 1];
+          checks[plan.id] = !!existing && !!latestVersion && latestVersion.phases.length > 0;
         }
         setPlanHasTemplate(checks);
       });

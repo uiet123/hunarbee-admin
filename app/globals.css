@@ -18,7 +18,7 @@
   --shadow-lift: 0 16px 48px rgba(11, 18, 32, 0.1);
 
   /* Soft mist blue-gray — easier on the eyes than white */
-  --background: #d9e2ee;
+  --background: #cbd5e1;
   --surface: #e8eef6;
   --surface-elevated: #f1f5fa;
   --foreground: var(--navy);
@@ -102,11 +102,9 @@ html.lenis body {
 }
 
 .cta-glow {
-  background: radial-gradient(
-    ellipse 70% 60% at 50% 0%,
-    rgba(245, 184, 0, 0.35),
-    transparent 60%
-  );
+  background: radial-gradient(ellipse 70% 60% at 50% 0%,
+      rgba(245, 184, 0, 0.35),
+      transparent 60%);
 }
 
 @keyframes accordion-down {
@@ -114,6 +112,7 @@ html.lenis body {
     height: 0;
     opacity: 0;
   }
+
   to {
     height: var(--radix-accordion-content-height);
     opacity: 1;
@@ -125,6 +124,7 @@ html.lenis body {
     height: var(--radix-accordion-content-height);
     opacity: 1;
   }
+
   to {
     height: 0;
     opacity: 0;
@@ -144,13 +144,16 @@ html.lenis body {
 .portal-scrollbar::-webkit-scrollbar {
   width: 4px;
 }
+
 .portal-scrollbar::-webkit-scrollbar-track {
   background: transparent;
 }
+
 .portal-scrollbar::-webkit-scrollbar-thumb {
   background: rgba(245, 184, 0, 0.18);
   border-radius: 999px;
 }
+
 .portal-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(245, 184, 0, 0.35);
 }
@@ -160,6 +163,7 @@ html.lenis body {
     transform: translateX(-100%);
     opacity: 0;
   }
+
   to {
     transform: translateX(0);
     opacity: 1;
@@ -171,6 +175,7 @@ html.lenis body {
     opacity: 0;
     transform: translateY(12px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -178,20 +183,24 @@ html.lenis body {
 }
 
 @keyframes pulse-glow {
+
   0%,
   100% {
     box-shadow: 0 0 0 0 rgba(245, 184, 0, 0);
   }
+
   50% {
     box-shadow: 0 0 12px 2px rgba(245, 184, 0, 0.15);
   }
 }
 
 @keyframes subtle-float {
+
   0%,
   100% {
     transform: translateY(0);
   }
+
   50% {
     transform: translateY(-4px);
   }
@@ -219,4 +228,3 @@ html.lenis body {
     radial-gradient(ellipse 50% 35% at 100% 100%, rgba(70, 110, 160, 0.06), transparent 50%),
     var(--background);
 }
-

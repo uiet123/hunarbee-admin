@@ -47,7 +47,7 @@ export default function StudentDetails({ params }: { params: Promise<{ id: strin
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div className="flex items-center gap-4">
-        <Link href="/admin/students" className="flex h-10 w-10 items-center justify-center rounded-xl border border-navy/10 bg-surface text-navy hover:bg-navy/5">
+        <Link href="/admin/directory" className="flex h-10 w-10 items-center justify-center rounded-xl border border-navy/10 bg-surface text-navy hover:bg-navy/5">
           <ArrowLeft className="h-5 w-5" />
         </Link>
         <div>

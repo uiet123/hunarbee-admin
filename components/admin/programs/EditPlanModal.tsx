@@ -4,24 +4,23 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-interface AddPlanModalProps {
+interface EditPlanModalProps {
+  plan: { id: string; name: string; price: number; duration_months: number; total_days: number };
   onClose: () => void;
-  onSave: (plan: { name: string; price: number; duration_months: number; total_days: number }) => Promise<void>;
+  onSave: (planId: string, data: { price: number; duration_months: number; total_days: number }) => Promise<void>;
 }
 
-export function AddPlanModal({ onClose, onSave }: AddPlanModalProps) {
-  const [price, setPrice] = useState("");
-  const [durationMonths, setDurationMonths] = useState("");
-  const [totalDays, setTotalDays] = useState("");
+export function EditPlanModal({ plan, onClose, onSave }: EditPlanModalProps) {
+  const [price, setPrice] = useState(plan.price.toString());
+  const [durationMonths, setDurationMonths] = useState(plan.duration_months.toString());
+  const [totalDays, setTotalDays] = useState(plan.total_days.toString());
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
     if (!price || !durationMonths || !totalDays) return;
     setSaving(true);
     try {
-      const generatedName = `${durationMonths} Month${Number(durationMonths) > 1 ? 's' : ''} Plan`;
-      await onSave({
-        name: generatedName,
+      await onSave(plan.id, {
         price: Number(price),
         duration_months: Number(durationMonths),
         total_days: Number(totalDays),
@@ -39,7 +38,7 @@ export function AddPlanModal({ onClose, onSave }: AddPlanModalProps) {
       
       <div className="relative w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl animate-in zoom-in-95 duration-200">
         <div className="flex items-center justify-between border-b border-navy/10 px-6 py-4">
-          <h2 className="text-xl font-bold text-navy">Add New Plan</h2>
+          <h2 className="text-xl font-bold text-navy">Edit Plan</h2>
           <button onClick={onClose} className="rounded-full p-2 text-slate hover:bg-navy/5 hover:text-navy transition-colors">
             <X className="h-5 w-5" />
           </button>
@@ -96,7 +95,7 @@ export function AddPlanModal({ onClose, onSave }: AddPlanModalProps) {
             Cancel
           </Button>
           <Button variant="primary" onClick={handleSave} disabled={saving || !isFormValid}>
-            {saving ? "Creating..." : "Create Plan"}
+            {saving ? "Saving..." : "Save Changes"}
           </Button>
         </div>
       </div>
